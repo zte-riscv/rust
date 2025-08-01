@@ -208,11 +208,11 @@
 use std::cell::OnceCell;
 use std::path::PathBuf;
 
-use rustc_attr_data_structures::InlineAttr;
 use rustc_data_structures::fx::FxIndexMap;
 use rustc_data_structures::sync::{MTLock, par_for_each_in};
 use rustc_data_structures::unord::{UnordMap, UnordSet};
 use rustc_hir as hir;
+use rustc_hir::attrs::InlineAttr;
 use rustc_hir::def::DefKind;
 use rustc_hir::def_id::{DefId, DefIdMap, LocalDefId};
 use rustc_hir::lang_items::LangItem;
@@ -1574,6 +1574,15 @@ impl<'v> RootCollector<'_, 'v> {
         let Some((main_def_id, EntryFnType::Main { .. })) = self.entry_fn else {
             return;
         };
+
+        let main_instance = Instance::mono(self.tcx, main_def_id);
+        if self.tcx.should_codegen_locally(main_instance) {
+            self.output.push(create_fn_mono_item(
+                self.tcx,
+                main_instance,
+                self.tcx.def_span(main_def_id),
+            ));
+        }
 
         let Some(start_def_id) = self.tcx.lang_items().start_fn() else {
             self.tcx.dcx().emit_fatal(errors::StartNotFound);

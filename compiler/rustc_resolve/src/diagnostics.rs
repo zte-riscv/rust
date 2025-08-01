@@ -4,9 +4,6 @@ use rustc_ast::{
     self as ast, CRATE_NODE_ID, Crate, ItemKind, ModKind, NodeId, Path, join_path_idents,
 };
 use rustc_ast_pretty::pprust;
-use rustc_attr_data_structures::{
-    self as attr, AttributeKind, CfgEntry, Stability, StrippedCfgItem, find_attr,
-};
 use rustc_data_structures::fx::{FxHashMap, FxHashSet};
 use rustc_data_structures::unord::{UnordMap, UnordSet};
 use rustc_errors::codes::*;
@@ -15,10 +12,11 @@ use rustc_errors::{
     report_ambiguity_error, struct_span_code_err,
 };
 use rustc_feature::BUILTIN_ATTRIBUTES;
-use rustc_hir::PrimTy;
+use rustc_hir::attrs::{AttributeKind, CfgEntry, StrippedCfgItem};
 use rustc_hir::def::Namespace::{self, *};
 use rustc_hir::def::{self, CtorKind, CtorOf, DefKind, NonMacroAttrKind, PerNS};
 use rustc_hir::def_id::{CRATE_DEF_ID, DefId};
+use rustc_hir::{PrimTy, Stability, StabilityLevel, find_attr};
 use rustc_middle::bug;
 use rustc_middle::ty::TyCtxt;
 use rustc_session::Session;
@@ -523,7 +521,7 @@ impl<'ra, 'tcx> Resolver<'ra, 'tcx> {
     }
 
     pub(crate) fn add_module_candidates(
-        &mut self,
+        &self,
         module: Module<'ra>,
         names: &mut Vec<TypoSuggestion>,
         filter_fn: &impl Fn(Res) -> bool,
@@ -1076,11 +1074,6 @@ impl<'ra, 'tcx> Resolver<'ra, 'tcx> {
                         }
                     }
                 }
-                Scope::CrateRoot => {
-                    let root_ident = Ident::new(kw::PathRoot, ident.span);
-                    let root_module = this.resolve_crate_root(root_ident);
-                    this.add_module_candidates(root_module, &mut suggestions, filter_fn, None);
-                }
                 Scope::Module(module, _) => {
                     this.add_module_candidates(module, &mut suggestions, filter_fn, None);
                 }
@@ -1155,7 +1148,7 @@ impl<'ra, 'tcx> Resolver<'ra, 'tcx> {
     }
 
     fn lookup_import_candidates_from_module<FilterFn>(
-        &mut self,
+        &self,
         lookup_ident: Ident,
         namespace: Namespace,
         parent_scope: &ParentScope<'ra>,
@@ -1367,9 +1360,7 @@ impl<'ra, 'tcx> Resolver<'ra, 'tcx> {
 
         match self.tcx.lookup_stability(did) {
             Some(Stability {
-                level: attr::StabilityLevel::Unstable { implied_by, .. },
-                feature,
-                ..
+                level: StabilityLevel::Unstable { implied_by, .. }, feature, ..
             }) => {
                 if span.allows_unstable(feature) {
                     true
@@ -2664,10 +2655,8 @@ impl<'ra, 'tcx> Resolver<'ra, 'tcx> {
             return None;
         }
 
-        let resolutions = self.resolutions(crate_module).borrow();
         let binding_key = BindingKey::new(ident, MacroNS);
-        let resolution = resolutions.get(&binding_key)?;
-        let binding = resolution.borrow().binding()?;
+        let binding = self.resolution(crate_module, binding_key)?.binding()?;
         let Res::Def(DefKind::Macro(MacroKind::Bang), _) = binding.res() else {
             return None;
         };
